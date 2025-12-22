@@ -1,0 +1,50 @@
+{
+  "name": "employee-work-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Desktop app for Employee Project Work Tracker",
+  "main": "main.mjs",
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development VITE_SERVER_URL=http://localhost:3001 concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "npm run dev --prefix ../frontend",
+    "dev:electron": "wait-on http://localhost:5175 && electron .",
+    "prepack": "node ./scripts/copy-frontend.mjs",
+    "dist": "npm run prepack && electron-builder --win",
+    "pack": "npm run prepack && electron-builder -w --dir"
+  },
+  "dependencies": {
+    "electron-store": "^11.0.2",
+    "node-fetch": "^3.3.2",
+    "node-machine-id": "^1.1.12"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.yourco.worktracker",
+    "productName": "Work Tracker",
+    "files": [
+      "main.mjs",
+      "preload.cjs",
+      "frontend-dist/**",
+      "node_modules/**",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
+    }
+  }
+}
