@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld("worktracker", {
     return () => ipcRenderer.removeListener("system:active", fn);
   },
 
+
+
   // 🔥 NEW: APP CLOSE HOOKS (👇 ADD FROM HERE)
   onAppClosing: (handler) => {
     if (typeof handler !== "function") return;

@@ -242,6 +242,7 @@ if (!app.isPackaged) {
 }
 
 app.whenReady().then(async () => {
+   overlayAllowed = true;
   await registerMachineIfNeeded();
   createWindow();
   wireOverlayVisibility();
@@ -261,6 +262,9 @@ app.whenReady().then(async () => {
 
   powerMonitor.on("suspend", broadcastSleep);
   powerMonitor.on("lock-screen", broadcastSleep);
+
+
+
 
   // 🔥 BROADCAST SYSTEM WAKE / UNLOCK TO ALL WINDOWS
   const broadcastWake = () => {
@@ -309,7 +313,7 @@ app.whenReady().then(async () => {
     }
   }, 5_000);
 
- globalShortcut.register("Ctrl+Shift+T", () => {
+ globalShortcut.register("Ctrl+Shift+o", () => {
   if (!overlayAllowed) return;
 
   // ✅ ensure overlay exists
