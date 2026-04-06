@@ -8,13 +8,15 @@ import {
   nativeImage,
   screen,
   powerMonitor,
-    globalShortcut,
+  globalShortcut,
 } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import os from "node:os";
 import Store from "electron-store";
 import machineIdPkg from "node-machine-id";
+import fs from "node:fs";   // ⭐ ADD THIS
+
 
 
 
@@ -31,7 +33,7 @@ const store = new Store({ name: "worktracker" });
 const SERVER_URL =
   process.env.WORKTRACKER_SERVER_URL ||
   process.env.VITE_SERVER_URL ||
-  "http://13.233.100.51";
+  "http://13.201.46.13";
 
 let mainWindow = null;
 let overlayWindow = null;
@@ -45,10 +47,14 @@ const isDev = () => !app.isPackaged;
 
 /* ---------- main window ---------- */
 function createWindow() {
+  const iconPath = path.join(__dirname, "build", "icon.ico");
+  console.log("ICON PATH:", iconPath);
+  console.log("ICON EXISTS:", fs.existsSync(iconPath));
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     title: "Work Tracker",
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -65,7 +71,7 @@ function createWindow() {
   }
 
 
-    mainWindow.on("close", (e) => {
+  mainWindow.on("close", (e) => {
     if (isQuitting) {
       // already confirmed from renderer, allow close
       return;
@@ -166,7 +172,7 @@ function createOverlayWindow() {
   if (!overlayAllowed) return null;
   if (overlayWindow) return overlayWindow;
 
- const defaultSize = { width: 180, height: 28 };
+  const defaultSize = { width: 180, height: 28 };
 
   const pos = overlayBounds
     ? { x: overlayBounds.x, y: overlayBounds.y }
@@ -180,10 +186,10 @@ function createOverlayWindow() {
     movable: true,
     skipTaskbar: true,
     alwaysOnTop: true,
-  
+
     focusable: true,
     transparent: true,      // ✅ IMPORTANT
-  backgroundColor: "#00000000", // ✅ transparent bg
+    backgroundColor: "#00000000", // ✅ transparent bg
     title: "Work Tracker Overlay",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -242,7 +248,9 @@ if (!app.isPackaged) {
 }
 
 app.whenReady().then(async () => {
-   overlayAllowed = true;
+  Menu.setApplicationMenu(null);
+
+  overlayAllowed = true;
   await registerMachineIfNeeded();
   createWindow();
   wireOverlayVisibility();
@@ -286,7 +294,7 @@ app.whenReady().then(async () => {
 
   setInterval(() => {
     const idleSeconds = powerMonitor.getSystemIdleTime();
-      console.log("OS idle seconds:", idleSeconds);  
+    console.log("OS idle seconds:", idleSeconds);
 
     // Just became idle
     if (!wasIdle && idleSeconds >= IDLE_THRESHOLD_SECONDS) {
@@ -313,23 +321,23 @@ app.whenReady().then(async () => {
     }
   }, 5_000);
 
- globalShortcut.register("Ctrl+Shift+o", () => {
-  if (!overlayAllowed) return;
+  globalShortcut.register("Ctrl+Shift+o", () => {
+    if (!overlayAllowed) return;
 
-  // ✅ ensure overlay exists
-  const ow = createOverlayWindow();
-  if (!ow) return;
+    // ✅ ensure overlay exists
+    const ow = createOverlayWindow();
+    if (!ow) return;
 
-  const { workArea } = screen.getPrimaryDisplay();
+    const { workArea } = screen.getPrimaryDisplay();
 
-  ow.setAlwaysOnTop(true, "screen-saver");
-  ow.setPosition(
-    workArea.x + workArea.width - 320,
-    workArea.y + workArea.height - 120
-  );
-  ow.show();
-  ow.focus();
-});
+    ow.setAlwaysOnTop(true, "screen-saver");
+    ow.setPosition(
+      workArea.x + workArea.width - 320,
+      workArea.y + workArea.height - 120
+    );
+    ow.show();
+    ow.focus();
+  });
 
 
 });
@@ -377,7 +385,7 @@ ipcMain.handle("overlay:resize", (_evt, { width, height }) => {
   if (!overlayWindow || overlayWindow.isDestroyed()) return false;
 
   const w = Math.max(140, Math.min(200, Math.floor(width || 150)));
- const h = Math.max(28, Math.min(40, Math.floor(height || 28)));
+  const h = Math.max(28, Math.min(40, Math.floor(height || 28)));
 
 
   overlayWindow.setSize(w, h, true);
