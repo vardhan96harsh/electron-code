@@ -3,6 +3,7 @@
   "version": "2026.9.2",
   "private": true,
   "description": "Desktop app for Employee Project Work Tracker",
+  "author": "Work Tracker",
   "main": "main.mjs",
   "scripts": {
     "dev": "cross-env NODE_ENV=development VITE_SERVER_URL=http://localhost:3001 concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
@@ -25,7 +26,7 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.yourco.worktracker",
+    "appId": "com.worktracker.desktop",
     "productName": "Work Tracker",
     "files": [
       "main.mjs",
@@ -40,12 +41,16 @@
     },
     "win": {
       "target": "nsis",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "publisherName": "Work Tracker",
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
+      "allowElevation": false,
       "allowToChangeInstallationDirectory": false,
+      "include": "build/installer.nsh",
       "artifactName": "${productName} Setup ${version}.${ext}"
     }
   }
