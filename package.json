@@ -1,6 +1,6 @@
 {
   "name": "employee-work-tracker",
-  "version": "1.0.0",
+  "version": "2026.9.1",
   "private": true,
   "description": "Desktop app for Employee Project Work Tracker",
   "main": "main.mjs",
@@ -31,6 +31,7 @@
       "main.mjs",
       "preload.cjs",
       "frontend-dist/**",
+      "build/**",
       "node_modules/**",
       "package.json"
     ],
@@ -44,7 +45,8 @@
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": false
+      "allowToChangeInstallationDirectory": false,
+      "artifactName": "${productName} Setup ${version}.${ext}"
     }
   }
 }
