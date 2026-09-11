@@ -39,27 +39,53 @@ let mainWindow = null;
 let overlayWindow = null;
 let tray = null;
 let overlayAllowed = false; // only true for employee role
+let isTimerRunning = false; // only true when a session is active/paused
 
 let overlayBounds = store.get("overlayBounds") || null;
 let overlayUserMoved = false;
 let isQuitting = false;
 const isDev = () => !app.isPackaged;
 
+/* ---------- app icon helper ---------- */
+function getAppIcon() {
+  const candidates = [
+    path.join(__dirname, "build", "icon.ico"),
+    path.join(__dirname, "build", "icon.png"),
+    path.join(__dirname, "frontend-dist", "favicon.png"),
+    path.join(process.resourcesPath || "", "build", "icon.ico"),
+    path.join(process.resourcesPath || "", "build", "icon.png"),
+    path.join(process.resourcesPath || "", "app.asar", "build", "icon.ico"),
+    path.join(process.resourcesPath || "", "app.asar", "build", "icon.png"),
+  ];
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c)) return c;
+    } catch {}
+  }
+  return undefined;
+}
+
 /* ---------- main window ---------- */
 function createWindow() {
-  const iconPath = path.join(__dirname, "build", "icon.ico");
-  console.log("ICON PATH:", iconPath);
-  console.log("ICON EXISTS:", fs.existsSync(iconPath));
+  const iconPath = getAppIcon();
+  console.log("RESOLVED ICON PATH:", iconPath);
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     title: "Work Tracker",
     icon: iconPath,
+    show: false,
+    backgroundColor: "#0f172a",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
     },
+  });
+
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.show();
   });
 
   if (isDev()) {
@@ -70,31 +96,57 @@ function createWindow() {
     mainWindow.loadFile(indexPath);
   }
 
-
   mainWindow.on("close", (e) => {
     if (isQuitting) {
-      // already confirmed from renderer, allow close
       return;
     }
 
-    // stop immediate close
+    // 🔒 USER CANNOT CLOSE APP - ONLY MINIMIZE:
+    // Intercept "X" button & Alt+F4 -> minimize to taskbar instead of closing
     e.preventDefault();
-
-    // tell renderer "app is closing"
-    if (!mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("app:closing");
-    }
+    mainWindow.minimize();
   });
 
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+
+  wireOverlayVisibility();
+}
+
+/* ---------- show main window helper ---------- */
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+
+  // Force window to foreground on Windows OS
+  mainWindow.setAlwaysOnTop(true);
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.setAlwaysOnTop(false);
+
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.hide();
+  }
 }
 
 /* ---------- tray ---------- */
 function setupTray() {
   try {
-    const iconPath = path.join(__dirname, "build", "icon.png");
+    const iconPath = getAppIcon();
+    if (!iconPath) {
+      console.warn("Tray icon not found, skipping tray setup");
+      return;
+    }
     const icon = nativeImage.createFromPath(iconPath);
     if (!icon || icon.isEmpty()) return;
 
@@ -102,14 +154,20 @@ function setupTray() {
     const menu = Menu.buildFromTemplate([
       {
         label: "Open Work Tracker",
-        click: () => (mainWindow ? mainWindow.show() : createWindow()),
+        click: () => showMainWindow(),
       },
       { type: "separator" },
-      { label: "Quit", click: () => app.quit() },
+      {
+        label: "Quit",
+        click: () => {
+          isQuitting = true;
+          app.quit();
+        },
+      },
     ]);
     tray.setToolTip("Work Tracker");
     tray.setContextMenu(menu);
-    tray.on("click", () => (mainWindow ? mainWindow.show() : createWindow()));
+    tray.on("click", () => showMainWindow());
   } catch (e) {
     console.warn("Tray not set:", e?.message || e);
   }
@@ -170,7 +228,7 @@ function positionOverlayTopRight() {
 
 function createOverlayWindow() {
   if (!overlayAllowed) return null;
-  if (overlayWindow) return overlayWindow;
+  if (overlayWindow && !overlayWindow.isDestroyed()) return overlayWindow;
 
   const defaultSize = { width: 180, height: 28 };
 
@@ -186,6 +244,7 @@ function createOverlayWindow() {
     movable: true,
     skipTaskbar: true,
     alwaysOnTop: true,
+    icon: getAppIcon(),
 
     focusable: true,
     transparent: true,      // ✅ IMPORTANT
@@ -228,9 +287,16 @@ function createOverlayWindow() {
 }
 
 function wireOverlayVisibility() {
-  if (!mainWindow) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.on("minimize", () => {
-    if (!overlayAllowed) return;
+    // ⏱️ ONLY open overlay if timer is running!
+    if (!overlayAllowed || !isTimerRunning) return;
+    const ow = createOverlayWindow();
+    ow?.show();
+  });
+  mainWindow.on("hide", () => {
+    // ⏱️ ONLY open overlay if timer is running!
+    if (!overlayAllowed || !isTimerRunning) return;
     const ow = createOverlayWindow();
     ow?.show();
   });
@@ -247,15 +313,33 @@ if (!app.isPackaged) {
   process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 }
 
-app.whenReady().then(async () => {
-  Menu.setApplicationMenu(null);
+// 🚀 High-Performance Switches: Smooth 60fps rendering, hardware acceleration, and memory stability
+app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+app.commandLine.appendSwitch("enable-gpu-rasterization");
+app.commandLine.appendSwitch("enable-zero-copy");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
 
-  overlayAllowed = true;
-  await registerMachineIfNeeded();
-  createWindow();
-  wireOverlayVisibility();
-  setupTray();
-  app.setLoginItemSettings({ openAtLogin: true });
+// 🚀 Single instance lock: Prevents multiple instances from running at the same time
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  console.log("⚠️ Another instance of Work Tracker is already running. Quitting.");
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    // When someone tries to launch a second instance (e.g. desktop shortcut), show and focus main window
+    showMainWindow();
+  });
+
+  app.whenReady().then(async () => {
+    Menu.setApplicationMenu(null);
+
+    overlayAllowed = true;
+    await registerMachineIfNeeded();
+    createWindow();
+    setupTray();
+    app.setLoginItemSettings({ openAtLogin: true });
 
   // 🔥 BROADCAST SYSTEM SLEEP / LOCK TO ALL WINDOWS
   const broadcastSleep = () => {
@@ -288,18 +372,17 @@ app.whenReady().then(async () => {
   powerMonitor.on("resume", broadcastWake);
   powerMonitor.on("unlock-screen", broadcastWake);
 
-  // 🔥 NEW: OS IDLE / ACTIVE DETECTION (5 min)
+  // 🔥 OS IDLE / ACTIVE DETECTION (Strict 5 minutes)
   const IDLE_THRESHOLD_SECONDS = 5 * 60; // 5 minutes
   let wasIdle = false;
 
   setInterval(() => {
     const idleSeconds = powerMonitor.getSystemIdleTime();
-    console.log("OS idle seconds:", idleSeconds);
 
-    // Just became idle
+    // Just became idle (after 5 full minutes of no mouse/keyboard activity)
     if (!wasIdle && idleSeconds >= IDLE_THRESHOLD_SECONDS) {
       wasIdle = true;
-      console.log("System idle → sending system:idle to all windows");
+      console.log("System idle (5 min) → sending system:idle to all windows");
       const all = BrowserWindow.getAllWindows();
       for (const win of all) {
         if (!win.isDestroyed()) {
@@ -308,8 +391,8 @@ app.whenReady().then(async () => {
       }
     }
 
-    // Became active again
-    if (wasIdle && idleSeconds < 4) {
+    // Became active again: user moved mouse or typed (idleSeconds dropped)
+    if (wasIdle && idleSeconds < 10) {
       wasIdle = false;
       console.log("System active → sending system:active to all windows");
       const all = BrowserWindow.getAllWindows();
@@ -319,7 +402,7 @@ app.whenReady().then(async () => {
         }
       }
     }
-  }, 5_000);
+  }, 2_000);
 
   globalShortcut.register("Ctrl+Shift+o", () => {
     if (!overlayAllowed) return;
@@ -338,21 +421,23 @@ app.whenReady().then(async () => {
     ow.show();
     ow.focus();
   });
+});
+}
 
-
+app.on("before-quit", () => {
+  isQuitting = true;
 });
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
 });
 
-
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  showMainWindow();
 });
 
 /* ---------- IPC ---------- */
@@ -362,14 +447,7 @@ ipcMain.handle("config:get", async () => {
 });
 
 ipcMain.handle("main:show", async () => {
-  if (!mainWindow) {
-    createWindow();
-  } else {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-  }
-  if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.hide();
+  showMainWindow();
   return true;
 });
 
@@ -379,6 +457,27 @@ ipcMain.handle("overlay:setEnabled", async (_evt, enabled) => {
     overlayWindow.hide();
   }
   return overlayAllowed;
+});
+
+ipcMain.handle("timer:setRunning", async (_evt, running) => {
+  isTimerRunning = !!running;
+  if (!isTimerRunning && overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.hide();
+  }
+  if (isTimerRunning && overlayAllowed && mainWindow && (!mainWindow.isVisible() || mainWindow.isMinimized())) {
+    const ow = createOverlayWindow();
+    ow?.show();
+  }
+  return isTimerRunning;
+});
+
+// ⏰ Focus window & flash taskbar when 10-minute idle timer reminder triggers
+ipcMain.handle("timer:alertReminder", async () => {
+  showMainWindow();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.flashFrame(true);
+  }
+  return true;
 });
 
 ipcMain.handle("overlay:resize", (_evt, { width, height }) => {
@@ -407,8 +506,7 @@ ipcMain.on("sessions:changed", () => {
 });
 
 ipcMain.on("app:confirm-close", () => {
-  isQuitting = true;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.close(); // this time "close" will not be prevented
+  if (isQuitting && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.close();
   }
 });

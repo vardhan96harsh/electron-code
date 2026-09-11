@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld("worktracker", {
   // overlay helpers
   setOverlayEnabled: (enabled) =>
     ipcRenderer.invoke("overlay:setEnabled", !!enabled),
+  setTimerRunning: (running) =>
+    ipcRenderer.invoke("timer:setRunning", !!running),
+  alertTimerReminder: () => ipcRenderer.invoke("timer:alertReminder"),
   resizeOverlay: (size) => ipcRenderer.invoke("overlay:resize", size),
 
   // sessions broadcast
